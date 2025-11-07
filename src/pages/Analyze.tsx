@@ -60,14 +60,41 @@ const Analyze = () => {
       return;
     }
 
+    // Mapeamento dos valores do Select para os textos completos esperados pelo webhook
+    const contractTypeMap: Record<string, string> = {
+      "aluguel": "Aluguel",
+      "compra-venda": "Compra e Venda",
+      "prestacao-servicos": "Prestação de Serviços",
+      "trabalho": "Contrato de Trabalho",
+      "parceria": "Parceria Comercial",
+      "confidencialidade": "Confidencialidade (NDA)",
+      "outros": "Outros"
+    };
+
+    const userRoleMap: Record<string, string> = {
+      "locatario": "Locatário/Inquilino",
+      "locador": "Locador/Proprietário",
+      "comprador": "Comprador",
+      "vendedor": "Vendedor",
+      "contratante": "Contratante",
+      "contratado": "Contratado/Prestador",
+      "empregado": "Empregado",
+      "empregador": "Empregador",
+      "reveladora": "Parte Reveladora",
+      "receptora": "Parte Receptora",
+      "outros": "Outros"
+    };
+
     setIsAnalyzing(true);
     
     try {
       const formData = new FormData();
       formData.append('contract', file);
-      formData.append('contract_type', contractType);
-      formData.append('contract_role', userRole);
+      formData.append('contract_type', contractTypeMap[contractType] || contractType);
+      formData.append('contract_role', userRoleMap[userRole] || userRole);
       
+      // Não definir Content-Type manualmente - o browser define automaticamente
+      // com o boundary correto para multipart/form-data
       const response = await fetch('https://id5-n8n.fly.dev/webhook-test/contract', {
         method: 'POST',
         body: formData,
@@ -79,19 +106,55 @@ const Analyze = () => {
 
       const result = await response.json();
       
-      if (result && result.length > 0 && result[0].text) {
+      // O webhook pode retornar diferentes formatos:
+      // 1. {"message": "Workflow was started"} - workflow iniciado (assíncrono)
+      // 2. {"analysis": "markdown text"} - resultado direto
+      // 3. {"text": "markdown text"} - resultado em campo text
+      // 4. [{"text": "markdown text"}] - resultado em array
+      // 5. String direta com markdown
+      
+      let analysisText: string | null = null;
+      
+      // Tenta extrair o texto de análise em diferentes formatos
+      if (typeof result === 'string') {
+        // Resposta é uma string direta (markdown)
+        analysisText = result;
+      } else if (result?.analysis) {
+        // Campo "analysis" contém o markdown
+        analysisText = result.analysis;
+      } else if (result?.text) {
+        // Campo "text" contém o markdown
+        analysisText = result.text;
+      } else if (Array.isArray(result) && result.length > 0) {
+        // Array com resultado
+        if (result[0]?.text) {
+          analysisText = result[0].text;
+        } else if (result[0]?.analysis) {
+          analysisText = result[0].analysis;
+        } else if (typeof result[0] === 'string') {
+          analysisText = result[0];
+        }
+      }
+      
+      // Se encontrou o texto de análise, redireciona para resultados
+      if (analysisText) {
         navigate("/results", { 
           state: { 
-            analysis: result[0].text,
+            analysis: analysisText,
             contractName: file.name,
-            contractType: contractType,
-            contractRole: userRole,
+            contractType: contractTypeMap[contractType] || contractType,
+            contractRole: userRoleMap[userRole] || userRole,
             analysisDate: new Date().toISOString()
           } 
         });
         toast.success("Análise concluída com sucesso!");
+      } else if (result?.message) {
+        // Workflow iniciado mas ainda processando (assíncrono)
+        toast.success("Análise iniciada com sucesso! Processando contrato...");
+        console.log("Workflow iniciado:", result.message);
+        // Aqui você pode implementar polling ou webhook callback se necessário
       } else {
-        throw new Error("Resposta inválida do servidor");
+        throw new Error("Resposta inválida do servidor: formato não reconhecido");
       }
       
     } catch (error) {
