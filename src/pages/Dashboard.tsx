@@ -23,7 +23,6 @@ const Dashboard = () => {
               <Scale className="h-6 w-6 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="text-xl font-bold">ContractAI</h1>
               <p className="text-xs text-muted-foreground">Assistente Jurídico</p>
             </div>
           </div>

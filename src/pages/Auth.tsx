@@ -52,7 +52,6 @@ const Auth = () => {
           <div className="p-3 bg-gradient-primary rounded-2xl shadow-glow">
             <Scale className="h-8 w-8 text-primary-foreground" />
           </div>
-          <h1 className="text-3xl font-bold tracking-tight">ContractAI</h1>
           <p className="text-muted-foreground">
             Seu assistente jurídico inteligente
           </p>

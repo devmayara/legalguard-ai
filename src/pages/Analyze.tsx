@@ -60,7 +60,6 @@ const Analyze = () => {
       return;
     }
 
-    // Mapeamento dos valores do Select para os textos completos esperados pelo webhook
     const contractTypeMap: Record<string, string> = {
       "aluguel": "Aluguel",
       "compra-venda": "Compra e Venda",
@@ -88,45 +87,64 @@ const Analyze = () => {
     setIsAnalyzing(true);
     
     try {
+      if (!file || file.size === 0) {
+        throw new Error("Arquivo inválido ou vazio");
+      }
+
       const formData = new FormData();
-      formData.append('contract', file);
+      formData.append('contract', file, file.name);
       formData.append('contract_type', contractTypeMap[contractType] || contractType);
       formData.append('contract_role', userRoleMap[userRole] || userRole);
       
-      // Não definir Content-Type manualmente - o browser define automaticamente
-      // com o boundary correto para multipart/form-data
-      const response = await fetch('https://id5-n8n.fly.dev/webhook-test/contract', {
-        method: 'POST',
-        body: formData,
+      const responseText = await new Promise<string>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(xhr.responseText);
+          } else {
+            let errorMessage = `Erro ${xhr.status}: ${xhr.statusText}`;
+            try {
+              const errorJson = JSON.parse(xhr.responseText);
+              errorMessage = errorJson.message || errorJson.error || errorMessage;
+            } catch {
+              if (xhr.responseText) {
+                errorMessage = `${errorMessage}\n${xhr.responseText.substring(0, 200)}`;
+              }
+            }
+            reject(new Error(errorMessage));
+          }
+        };
+        
+        xhr.onerror = () => {
+          reject(new Error('Erro de rede ao enviar requisição'));
+        };
+        
+        xhr.ontimeout = () => {
+          reject(new Error('Timeout ao enviar requisição'));
+        };
+        
+        xhr.open("POST", "https://id5-n8n.fly.dev/webhook/contract");
+        xhr.setRequestHeader('Accept', '*/*');
+        xhr.send(formData);
       });
 
-      if (!response.ok) {
-        throw new Error(`Erro na análise: ${response.status}`);
+      let result;
+      try {
+        result = JSON.parse(responseText);
+      } catch {
+        result = responseText;
       }
-
-      const result = await response.json();
-      
-      // O webhook pode retornar diferentes formatos:
-      // 1. {"message": "Workflow was started"} - workflow iniciado (assíncrono)
-      // 2. {"analysis": "markdown text"} - resultado direto
-      // 3. {"text": "markdown text"} - resultado em campo text
-      // 4. [{"text": "markdown text"}] - resultado em array
-      // 5. String direta com markdown
       
       let analysisText: string | null = null;
       
-      // Tenta extrair o texto de análise em diferentes formatos
       if (typeof result === 'string') {
-        // Resposta é uma string direta (markdown)
         analysisText = result;
       } else if (result?.analysis) {
-        // Campo "analysis" contém o markdown
         analysisText = result.analysis;
       } else if (result?.text) {
-        // Campo "text" contém o markdown
         analysisText = result.text;
       } else if (Array.isArray(result) && result.length > 0) {
-        // Array com resultado
         if (result[0]?.text) {
           analysisText = result[0].text;
         } else if (result[0]?.analysis) {
@@ -136,7 +154,6 @@ const Analyze = () => {
         }
       }
       
-      // Se encontrou o texto de análise, redireciona para resultados
       if (analysisText) {
         navigate("/results", { 
           state: { 
@@ -149,21 +166,21 @@ const Analyze = () => {
         });
         toast.success("Análise concluída com sucesso!");
       } else if (result?.message) {
-        // Workflow iniciado mas ainda processando (assíncrono)
         toast.success("Análise iniciada com sucesso! Processando contrato...");
-        console.log("Workflow iniciado:", result.message);
-        // Aqui você pode implementar polling ou webhook callback se necessário
       } else {
         throw new Error("Resposta inválida do servidor: formato não reconhecido");
       }
       
     } catch (error) {
-      console.error('Erro ao analisar contrato:', error);
-      toast.error(
-        error instanceof Error 
-          ? `Erro: ${error.message}` 
-          : "Erro ao analisar o contrato. Tente novamente."
-      );
+      let errorMessage = "Erro ao analisar o contrato. Tente novamente.";
+      if (error instanceof Error) {
+        errorMessage = error.message;
+        if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+          errorMessage = "Erro de conexão. Verifique sua internet e tente novamente.";
+        }
+      }
+      
+      toast.error(errorMessage);
     } finally {
       setIsAnalyzing(false);
     }
