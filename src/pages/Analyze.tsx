@@ -33,12 +33,11 @@ const Analyze = () => {
 
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       const droppedFile = e.dataTransfer.files[0];
-      if (droppedFile.type === "application/pdf" || 
-          droppedFile.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
+      if (droppedFile.type === "application/pdf") {
         setFile(droppedFile);
         toast.success("Arquivo carregado com sucesso!");
       } else {
-        toast.error("Por favor, envie apenas arquivos PDF ou DOCX");
+        toast.error("Por favor, envie apenas arquivos PDF");
       }
     }
   };
@@ -56,14 +55,55 @@ const Analyze = () => {
       return;
     }
 
+    if (file.type !== "application/pdf") {
+      toast.error("Apenas arquivos PDF são aceitos");
+      return;
+    }
+
     setIsAnalyzing(true);
     
-    // TODO: Implementar análise com IA
-    setTimeout(() => {
-      toast.success("Análise concluída!");
-      navigate("/history");
+    try {
+      const formData = new FormData();
+      formData.append('contract', file);
+      formData.append('contract_type', contractType);
+      formData.append('contract_role', userRole);
+      
+      const response = await fetch('https://id5-n8n.fly.dev/webhook-test/contract', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Erro na análise: ${response.status}`);
+      }
+
+      const result = await response.json();
+      
+      if (result && result.length > 0 && result[0].text) {
+        navigate("/results", { 
+          state: { 
+            analysis: result[0].text,
+            contractName: file.name,
+            contractType: contractType,
+            contractRole: userRole,
+            analysisDate: new Date().toISOString()
+          } 
+        });
+        toast.success("Análise concluída com sucesso!");
+      } else {
+        throw new Error("Resposta inválida do servidor");
+      }
+      
+    } catch (error) {
+      console.error('Erro ao analisar contrato:', error);
+      toast.error(
+        error instanceof Error 
+          ? `Erro: ${error.message}` 
+          : "Erro ao analisar o contrato. Tente novamente."
+      );
+    } finally {
       setIsAnalyzing(false);
-    }, 3000);
+    }
   };
 
   return (
@@ -97,7 +137,7 @@ const Analyze = () => {
                 Enviar Contrato
               </CardTitle>
               <CardDescription>
-                Faça upload do arquivo PDF ou DOCX do contrato para análise
+                Faça upload do arquivo PDF do contrato para análise
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -142,7 +182,7 @@ const Analyze = () => {
                     </div>
                     <Input
                       type="file"
-                      accept=".pdf,.docx"
+                      accept=".pdf"
                       onChange={handleFileChange}
                       className="hidden"
                       id="file-upload"
